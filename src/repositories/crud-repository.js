@@ -12,51 +12,33 @@ class CrudRepository{
     }
 
     async destroy(data){
-        try {
-            const response = await this.model.destroy({
-                where: {
-                    id: data
-                }
-            });
-            return response;
-        } catch (error) {
-            Logger.error("Something went wrong in the CRUD Repo: Destroy ");
-            throw error;
-        }
+        
+        const response = await this.model.destroy({
+            where: {
+                id: data
+            }
+        });
+        return response;
     }
 
     async get(data){
-        try {
-            const response = await this.model.findByPk(data);
-            return response;
-        } catch (error) {
-            Logger.error("Something went wrong in the CRUD Repo: Get ");
-            throw error;
-        }
+        
+        const response = await this.model.findByPk(data);
+        return response;
     }
 
     async getAll(){
-        try {
-            const response = await this.model.create();
-            return response;
-        } catch (error) {
-            Logger.error("Something went wrong in the CRUD Repo: Get All ");
-            throw error;
-        }
+        const response = await this.model.findAll();
+        return response;
     }
 
     async update(id,data){ // data -> {cols: value, .....}
-        try {
-            const response = await this.model.update(data,{
-                where: {
-                    id : id
-                }
-            });
-            return response;
-        } catch (error) {
-            Logger.error("Something went wrong in the CRUD Repo: Update ");
-            throw error;
-        }
+        const response = await this.model.update(data,{
+            where: {
+                id : id
+            }
+        });
+        return response;
     }
 }
 
