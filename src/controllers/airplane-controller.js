@@ -6,7 +6,6 @@ const {SuccessResponse,ErrorResponse} = require('../utils/common')
 /* POST: /airplanes
    request-body { modelNumber: 'airbus320 , capacity: 200}
 */ 
-
 async function createAirplane(req,res){
     try {
         const airplane = await AirplaneService.createAirplane({
@@ -25,6 +24,9 @@ async function createAirplane(req,res){
     }
 }
 
+/* GET: /airplanes
+   request-body {}
+*/ 
 async function getAirplanes(req,res){
     try {
         const airplanes = await AirplaneService.getAirplanes();
@@ -39,7 +41,27 @@ async function getAirplanes(req,res){
         .json(ErrorResponse)
     }
 }
+
+/* GET: /airplane/id
+   request-body {}
+*/ 
+async function getAirplane(req,res){
+    try {
+        const airplanes = await AirplaneService.getAirplane(req.params.id);
+        SuccessResponse.data = airplanes;
+        return res
+        .status(StatusCodes.OK)
+        .json(SuccessResponse)
+    } catch (error) {
+        ErrorResponse.error = error;
+        return res
+        .status(error.statusCode || 500)
+        .json(ErrorResponse)
+    }
+}
+
 module.exports = {
     createAirplane,
-    getAirplanes
+    getAirplanes,
+    getAirplane
 }
