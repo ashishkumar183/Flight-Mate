@@ -4,17 +4,22 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     const now = new Date();
 
-    // Get all cities using Sequelize query (database agnostic)
-    const cities = await queryInterface.sequelize.query(
-      'SELECT id, name FROM Cities',
-      { type: queryInterface.sequelize.QueryTypes.SELECT }
+    // 1) load existing airport codes to avoid unique violations
+    const existing = await queryInterface.sequelize.query(
+      'SELECT code FROM Airports;',
+      { type: Sequelize.QueryTypes.SELECT }
     );
-    
-    const cityMap = new Map();
-    cities.forEach(city => cityMap.set(city.name, city.id));
+    const existingCodes = new Set(existing.map(r => r.code));
 
+    // 2) load cities map (name -> id)
+    const cities = await queryInterface.sequelize.query(
+      'SELECT id, name FROM Cities;',
+      { type: Sequelize.QueryTypes.SELECT }
+    );
+    const cityMap = new Map(cities.map(c => [c.name, c.id]));
+
+    // 3) candidate airports
     const airportData = [
-      // 🇮🇳 Airports in Indian Cities
       { name: 'Indira Gandhi International Airport', code: 'DEL', address: 'New Delhi, Delhi', cityName: 'Delhi' },
       { name: 'Safdarjung Airport (Delhi)', code: 'VIDX', address: 'Safdarjung Airport Area, New Delhi, Delhi', cityName: 'Delhi' },
       { name: 'Chhatrapati Shivaji Maharaj International Airport', code: 'BOM', address: 'Mumbai, Maharashtra', cityName: 'Mumbai' },
@@ -50,8 +55,6 @@ module.exports = {
       { name: 'Lokpriya Gopinath Bordoloi International Airport', code: 'GAU', address: 'Guwahati, Assam', cityName: 'Guwahati' },
       { name: 'Birsa Munda Airport', code: 'IXR', address: 'Ranchi, Jharkhand', cityName: 'Ranchi' },
       { name: 'Lal Bahadur Shastri International Airport', code: 'VNS', address: 'Varanasi, Uttar Pradesh', cityName: 'Varanasi' },
-
-      // 🌍 Airports in Overseas Cities
       { name: 'John F. Kennedy International Airport', code: 'JFK', address: 'Queens, New York, USA', cityName: 'New York' },
       { name: 'LaGuardia Airport', code: 'LGA', address: 'Queens, New York, USA', cityName: 'New York' },
       { name: 'Newark Liberty International Airport', code: 'EWR', address: 'Newark, New Jersey, USA', cityName: 'New York' },
@@ -77,43 +80,58 @@ module.exports = {
       { name: 'Leonardo da Vinci-Fiumicino Airport', code: 'FCO', address: 'Rome, Italy', cityName: 'Rome' },
       { name: 'Hong Kong International Airport', code: 'HKG', address: 'Hong Kong', cityName: 'Hong Kong' },
       { name: 'Suvarnabhumi Airport', code: 'BKK', address: 'Bangkok, Thailand', cityName: 'Bangkok' },
-      { name: 'Don Mueang International Airport', code: 'DMK', address: 'Bangkok, Thailand', cityName: 'Bangkok' },
+      { name: 'Don Mueang International Airport', code: 'DMK', address: 'Bangkok, Thailand', cityName: 'Bangkok' }
     ];
 
-    // Filter out airports where cities don't exist and log missing ones
-    const validAirports = [];
-    const missingCities = [];
-
-    for (const airport of airportData) {
-      const cityId = cityMap.get(airport.cityName);
-      if (cityId) {
-        validAirports.push({
-          name: airport.name,
-          code: airport.code,
-          address: airport.address,
-          cityId: cityId,
-          createdAt: now,
-          updatedAt: now
-        });
-      } else {
-        missingCities.push(airport.cityName);
+    // 4) build rows but skip existing codes & missing cities
+    const rows = [];
+    const skipped = [];
+    for (const a of airportData) {
+      if (existingCodes.has(a.code)) {
+        skipped.push({ code: a.code, reason: 'already exists' });
+        continue;
       }
+      const cityId = cityMap.get(a.cityName);
+      if (!cityId) {
+        skipped.push({ code: a.code, reason: `city "${a.cityName}" not found` });
+        continue;
+      }
+
+      rows.push({
+        name: a.name,
+        code: a.code,
+        address: a.address,
+        cityId,
+        createdAt: now,
+        updatedAt: now
+      });
     }
 
-    // Log missing cities for debugging
-    if (missingCities.length > 0) {
-      console.log('Warning: The following cities were not found and their airports will be skipped:');
-      console.log([...new Set(missingCities)].join(', '));
+    if (rows.length === 0) {
+      console.log('No new airports to insert. Skipped:', skipped.length);
+      if (skipped.length) console.log('Skipped details:', skipped);
+      return;
     }
 
-    // Only insert airports for existing cities
-    if (validAirports.length > 0) {
-      await queryInterface.bulkInsert('Airports', validAirports, {});
-      console.log(`Successfully inserted ${validAirports.length} airports`);
+    try {
+      await queryInterface.bulkInsert('Airports', rows, {});
+      console.log(`Inserted ${rows.length} new airports. Skipped: ${skipped.length}`);
+      if (skipped.length) console.log('Skipped details:', skipped);
+    } catch (err) {
+      console.error('bulkInsert failed:', err.message);
+      if (err.parent) console.error('DB error:', err.parent && (err.parent.sqlMessage || err.parent.message));
+      throw err;
     }
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.bulkDelete('Airports', null, {});
+    // delete only the codes we attempted to insert (safe rollback)
+    const codes = [
+      'DEL','VIDX','BOM','VABJ','BLR','VOBG','HYD','VOHY','MAA','CCU','PNQ','AMD','JAI','LKO','KNU','NAG','IDR','BHO',
+      'PAT','STV','BDQ','RAJ','VTZ','VGA','IXC','ATQ','LUH','CJB','IXM','MYQ','TRV','COK','GAU','IXR','VNS',
+      'JFK','LGA','EWR','LHR','LGW','LCY','CDG','ORY','NRT','HND','SIN','DXB','DWC','YYZ','YTZ','LAX','ORD','MDW',
+      'SYD','MEL','MEB','BER','FCO','HKG','BKK','DMK'
+    ];
+    await queryInterface.bulkDelete('Airports', { code: codes }, {});
   }
 };
